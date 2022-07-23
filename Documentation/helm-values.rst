@@ -1645,6 +1645,10 @@
      - interval between checks of the startup probe
      - int
      - ``2``
+   * - strictModeCIDRs
+     - 
+     - string
+     - ``""``
    * - svcSourceRangeCheck
      - Enable check of service source ranges (currently, only for LoadBalancer).
      - bool

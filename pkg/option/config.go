@@ -719,6 +719,9 @@ const (
 	// EnableWireguard is the name of the option to enable wireguard
 	EnableWireguard = "enable-wireguard"
 
+	// EnableStrictMode is the name of the option to enable strict encryption mode and block unencrypted traffic
+	StrictModeCIDRs = "strict-mode-CIDRs"
+
 	// EnableWireguardUserspaceFallback is the name of the option that enables the fallback to wireguard userspace mode
 	EnableWireguardUserspaceFallback = "enable-wireguard-userspace-fallback"
 
@@ -1569,6 +1572,9 @@ type DaemonConfig struct {
 
 	// EnableWireguard enables Wireguard encryption
 	EnableWireguard bool
+
+	// EnableStrictMode enables strict mode for encryption
+	StrictModeCIDRs []*cidr.CIDR
 
 	// EnableWireguardUserspaceFallback enables the fallback to the userspace implementation
 	EnableWireguardUserspaceFallback bool
@@ -2981,6 +2987,14 @@ func (c *DaemonConfig) Populate() {
 		}
 	} else {
 		c.AddressScopeMax = defaults.AddressScopeMax
+	}
+
+	for _, v := range viper.GetStringSlice(StrictModeCIDRs) {
+		parsedCIDR := cidr.MustParseCIDR(v)
+		if !ip.IsIPv4(parsedCIDR.IP) {
+			log.Fatalf("%s must be an IPv4 CIDR", parsedCIDR)
+		}
+		c.StrictModeCIDRs = append(c.StrictModeCIDRs, parsedCIDR)
 	}
 
 	ipv4NativeRoutingCIDR := viper.GetString(IPv4NativeRoutingCIDR)

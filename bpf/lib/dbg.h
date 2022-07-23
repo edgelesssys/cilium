@@ -145,6 +145,9 @@ enum {
 #define EVENT_SOURCE 0
 #endif
 
+#undef DEBUG
+#define DEBUG 1
+
 #ifdef DEBUG
 #include "events.h"
 #endif

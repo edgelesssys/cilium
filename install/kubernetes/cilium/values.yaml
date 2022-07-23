@@ -550,6 +550,8 @@ encryption:
   # This option is only effective when encryption.type is set to ipsec.
   interface: ""
 
+strictModeCIDRs: []
+
 endpointHealthChecking:
   # -- Enable connectivity health checking between virtual endpoints.
   enabled: true

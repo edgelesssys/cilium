@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -233,6 +234,22 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 		cDefinesMap["ENABLE_WIREGUARD"] = "1"
 	}
 
+	if len(option.Config.StrictModeCIDRs) > 0 {
+		cDefinesMap["STRICT_MODE"] = "1"
+		// only 2 CIDR ifdefs in "wireguard.h"
+		if len(option.Config.StrictModeCIDRs) > 2 {
+			return errors.New("too many strict-mode IPs, maximum number is 2")
+		}
+		for i, v := range option.Config.StrictModeCIDRs {
+			// when parsing the user input we only accept ipv4 addresses
+			cDefinesMap[fmt.Sprintf("IPV4_NET_%d", i)] = fmt.Sprintf("%d", ipv4ToInt(v.IPNet.IP))
+			prefixSize, _ := v.IPNet.Mask.Size()
+			cDefinesMap[fmt.Sprintf("IPV4_NET_%d_SIZE", i)] = fmt.Sprintf("%d", prefixSize)
+		}
+
+		cDefinesMap["IPV4_COUNT"] = fmt.Sprintf("%d", len(option.Config.StrictModeCIDRs))
+	}
+
 	if option.Config.InstallIptRules || iptables.KernelHasNetfilter() {
 		cDefinesMap["NO_REDIRECT"] = "1"
 	}
@@ -403,12 +420,12 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 			cDefinesMap["ENABLE_SRC_RANGE_CHECK"] = "1"
 			if option.Config.EnableIPv4 {
 				cDefinesMap["LB4_SRC_RANGE_MAP"] = lbmap.SourceRange4MapName
-				cDefinesMap["LB4_SRC_RANGE_MAP_SIZE"] =
+				cDefinesMap["LB4_SRC_RANGE_MAP_SIZE"] = 
 					fmt.Sprintf("%d", lbmap.SourceRange4Map.MapInfo.MaxEntries)
 			}
 			if option.Config.EnableIPv6 {
 				cDefinesMap["LB6_SRC_RANGE_MAP"] = lbmap.SourceRange6MapName
-				cDefinesMap["LB6_SRC_RANGE_MAP_SIZE"] =
+				cDefinesMap["LB6_SRC_RANGE_MAP_SIZE"] = 
 					fmt.Sprintf("%d", lbmap.SourceRange6Map.MapInfo.MaxEntries)
 			}
 		}
@@ -536,7 +553,7 @@ func (h *HeaderfileWriter) WriteNodeConfig(w io.Writer, cfg *datapath.LocalNodeC
 		if option.Config.EnableIPv4Masquerade && option.Config.EnableBPFMasquerade {
 			cDefinesMap["ENABLE_MASQUERADE"] = "1"
 			cidr := datapath.RemoteSNATDstAddrExclusionCIDRv4()
-			cDefinesMap["IPV4_SNAT_EXCLUSION_DST_CIDR"] =
+			cDefinesMap["IPV4_SNAT_EXCLUSION_DST_CIDR"] = 
 				fmt.Sprintf("%#x", byteorder.NetIPv4ToHost32(cidr.IP))
 			ones, _ := cidr.Mask.Size()
 			cDefinesMap["IPV4_SNAT_EXCLUSION_DST_CIDR_LEN"] = fmt.Sprintf("%d", ones)

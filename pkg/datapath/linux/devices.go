@@ -409,7 +409,8 @@ func (dm *DeviceManager) AreDevicesRequired() bool {
 
 	return option.Config.EnableNodePort ||
 		option.Config.EnableHostFirewall ||
-		option.Config.EnableBandwidthManager
+		option.Config.EnableBandwidthManager ||
+		(len(option.Config.StrictModeCIDRs) > 0)
 }
 
 // expandDevices expands all wildcard device names to concrete devices.

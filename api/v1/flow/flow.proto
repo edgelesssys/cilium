@@ -295,6 +295,7 @@ enum DropReason {
     INVALID_TC_BUFFER = 184;
     NO_SID = 185;
     MISSING_SRV6_STATE = 186;
+    DROP_UNENCRYPTED_TRAFFIC = 187;
 }
 
 enum TrafficDirection {
