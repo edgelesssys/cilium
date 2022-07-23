@@ -57,6 +57,9 @@
 #include "lib/host_firewall.h"
 #include "lib/overloadable.h"
 #include "lib/encrypt.h"
+#ifdef STRICT_MODE
+#include "lib/strict.h"
+#endif
 
 static __always_inline bool allow_vlan(__u32 __maybe_unused ifindex, __u32 __maybe_unused vlan_id) {
 	VLAN_FILTER(ifindex, vlan_id);
@@ -1076,7 +1079,9 @@ int from_host(struct __ctx_buff *ctx)
  * to-netdev is attached as a tc egress filter to one or more physical devices
  * managed by Cilium (e.g., eth0). This program is only attached when:
  * - the host firewall is enabled, or
- * - BPF NodePort is enabled
+ * - BPF NodePort is enabled, or
+ * - strict mode is enabled, or
+ * - bandwidth manager is enabled
  */
 __section("to-netdev")
 int to_netdev(struct __ctx_buff *ctx __maybe_unused)
@@ -1102,6 +1107,14 @@ int to_netdev(struct __ctx_buff *ctx __maybe_unused)
 							      CTX_ACT_DROP, METRIC_EGRESS);
 		}
 	}
+
+#ifdef STRICT_MODE
+	if (dst_IP_and_src_IP_in_strict_mode_CIDR(ctx))
+	{
+		return send_drop_notify_error(ctx, 0, DROP_UNENCRYPTED_TRAFFIC,
+									  CTX_ACT_DROP, METRIC_EGRESS);
+	}
+#endif
 
 #if defined(ENABLE_L7_LB)
 	{

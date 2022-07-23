@@ -422,6 +422,9 @@ func initializeFlags() {
 	flags.Bool(option.EnableWireguardUserspaceFallback, false, "Enables the fallback to the wireguard userspace implementation")
 	option.BindEnv(option.EnableWireguardUserspaceFallback)
 
+	flags.String(option.StrictModeCIDR, "", "Enable encryption strict mode to block all unencrypted traffic to specified CIDR")
+	option.BindEnv(option.StrictModeCIDR)
+
 	flags.Bool(option.ForceLocalPolicyEvalAtSource, defaults.ForceLocalPolicyEvalAtSource, "Force policy evaluation of all local communication at the source endpoint")
 	option.BindEnv(option.ForceLocalPolicyEvalAtSource)
 

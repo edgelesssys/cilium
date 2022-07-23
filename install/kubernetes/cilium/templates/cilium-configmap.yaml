@@ -499,6 +499,10 @@ data:
   {{- end }}
 {{- end }}
 
+{{- if .Values.strictModeCIDR }}
+  strict-mode-cidr: {{ .Values.strictModeCIDR | quote }}
+{{- end }}
+
   enable-xt-socket-fallback: {{ .Values.enableXTSocketFallback | quote }}
   install-iptables-rules: {{ .Values.installIptablesRules | quote }}
 {{- if or (.Values.azure.enabled) (.Values.eni.enabled) (.Values.gke.enabled) (ne .Values.cni.chainingMode "none") }}

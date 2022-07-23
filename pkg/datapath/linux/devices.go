@@ -405,7 +405,8 @@ func (dm *DeviceManager) Listen(ctx context.Context) (chan []string, error) {
 func (dm *DeviceManager) AreDevicesRequired() bool {
 	return option.Config.EnableNodePort ||
 		option.Config.EnableHostFirewall ||
-		option.Config.EnableBandwidthManager
+		option.Config.EnableBandwidthManager ||
+		(option.Config.StrictModeCIDR != nil)
 }
 
 // expandDevices expands all wildcard device names to concrete devices.
