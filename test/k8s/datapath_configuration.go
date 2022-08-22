@@ -626,7 +626,8 @@ var _ = Describe("K8sDatapathConfig", func() {
 
 			testWireguard("cilium_vxlan")
 		})
-		
+	})
+
 	SkipContextIf(helpers.DoesNotRunOnNetNextKernel, "Wireguard encryption strict mode", func() {
 		testStrictWireguard := func(interNodeDev string, ciliumConfig map[string]string) {
 			deploymentManager.DeployCilium(ciliumConfig, DeployCiliumOptionsAndDNS)
