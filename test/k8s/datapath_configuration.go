@@ -626,7 +626,136 @@ var _ = Describe("K8sDatapathConfig", func() {
 
 			testWireguard("cilium_vxlan")
 		})
+		
+	SkipContextIf(helpers.DoesNotRunOnNetNextKernel, "Wireguard encryption strict mode", func() {
+		testStrictWireguard := func(interNodeDev string, ciliumConfig map[string]string) {
+			deploymentManager.DeployCilium(ciliumConfig, DeployCiliumOptionsAndDNS)
 
+			kubectl.SetCiliumOperatorReplicas(0)
+			randomNamespace := deploymentManager.DeployRandomNamespaceShared(DemoDaemonSet)
+			deploymentManager.WaitUntilReady()
+
+			k8s1NodeName, k8s1IP := kubectl.GetNodeInfo(helpers.K8s1)
+			k8s2NodeName, k8s2IP := kubectl.GetNodeInfo(helpers.K8s2)
+
+			// Fetch srcPod (testDSClient@k8s1)
+			srcPod, srcPodJSON := fetchPodsWithOffset(kubectl, randomNamespace, "client", "zgroup=testDSClient", k8s2IP, true, 0)
+			srcPodIP, err := srcPodJSON.Filter("{.status.podIP}")
+			ExpectWithOffset(1, err).Should(BeNil(), "Failure to retrieve pod IP %s", srcPod)
+			srcHost, err := srcPodJSON.Filter("{.status.hostIP}")
+			ExpectWithOffset(1, err).Should(BeNil(), "Failure to retrieve host of pod %s", srcPod)
+			// Sanity check
+			ExpectWithOffset(1, srcHost.String()).Should(Equal(k8s1IP))
+			// Fetch srcPod IPv6
+			ciliumPodK8s1, err := kubectl.GetCiliumPodOnNode(helpers.K8s1)
+			ExpectWithOffset(1, err).Should(BeNil(), "Unable to fetch cilium pod on k8s1")
+			endpointIPs := kubectl.CiliumEndpointIPv6(ciliumPodK8s1, "-l k8s:zgroup=testDSClient")
+			// Sanity check
+			ExpectWithOffset(1, len(endpointIPs)).Should(Equal(1), "BUG: more than one DS client on %s", ciliumPodK8s1)
+
+			// Fetch dstPod (testDS@k8s2)
+			dstPod, dstPodJSON := fetchPodsWithOffset(kubectl, randomNamespace, "server", "zgroup=testDS", k8s1IP, true, 0)
+			dstPodIP, err := dstPodJSON.Filter("{.status.podIP}")
+			ExpectWithOffset(1, err).Should(BeNil(), "Failure to retrieve IP of pod %s", dstPod)
+			dstHost, err := dstPodJSON.Filter("{.status.hostIP}")
+			ExpectWithOffset(1, err).Should(BeNil(), "Failure to retrieve host of pod %s", dstPod)
+			// Sanity check
+			ExpectWithOffset(1, dstHost.String()).Should(Equal(k8s2IP))
+			// Fetch dstPod IPv6
+			ciliumPodK8s2, err := kubectl.GetCiliumPodOnNode(helpers.K8s2)
+			ExpectWithOffset(1, err).Should(BeNil(), "Unable to fetch cilium pod on k8s2")
+			endpointIPs = kubectl.CiliumEndpointIPv6(ciliumPodK8s2, "-l k8s:zgroup=testDS")
+			// Sanity check
+			ExpectWithOffset(1, len(endpointIPs)).Should(Equal(1), "BUG: more than one DS server on %s", ciliumPodK8s2)
+
+			checkNoLeak := func(srcPod, srcIP, dstIP string, shouldBeSuccessful bool) {
+				cmd := fmt.Sprintf("tcpdump -vv -i %s --immediate-mode -n 'host %s and host %s' -c 1", interNodeDev, srcIP, dstIP)
+				res1, cancel1, err := kubectl.ExecInHostNetNSInBackground(context.TODO(), k8s1NodeName, cmd)
+				ExpectWithOffset(2, err).Should(BeNil(), "Cannot exec tcpdump in bg")
+				res2, cancel2, err := kubectl.ExecInHostNetNSInBackground(context.TODO(), k8s2NodeName, cmd)
+				ExpectWithOffset(2, err).Should(BeNil(), "Cannot exec tcpdump in bg")
+
+				// HTTP connectivity test (pod2pod)
+
+				cmdRes := kubectl.ExecPodCmd(randomNamespace, srcPod, helpers.CurlFail("http://%s/", net.JoinHostPort(dstIP, "80"))) 
+				if shouldBeSuccessful {
+					cmdRes.ExpectSuccess("Failed to curl dst pod")
+				} else {
+					cmdRes.ExpectFail("Should not be able to curl dst pod")
+				}
+
+				// Check that no unencrypted pod2pod traffic was captured on the direct routing device
+				cancel1()
+				cancel2()
+				ExpectWithOffset(2, res1.CombineOutput().String()).Should(Not(ContainSubstring("1 packet captured")))
+				ExpectWithOffset(2, res2.CombineOutput().String()).Should(Not(ContainSubstring("1 packet captured")))
+			}
+
+			checkNoLeak(srcPod, srcPodIP.String(), dstPodIP.String(), false)
+
+			// Check that the src pod can reach the remote host
+			kubectl.ExecPodCmd(randomNamespace, srcPod, helpers.Ping(k8s2IP)).
+				ExpectSuccess("Failed to ping k8s2 host from src pod")
+
+			// Check that the remote host can reach the dst pod
+			kubectl.ExecInHostNetNS(context.TODO(), k8s1NodeName,
+				helpers.CurlFail("http://%s:80/", dstPodIP)).ExpectSuccess("Failed to curl dst pod from k8s1")
+
+			
+			kubectl.SetCiliumOperatorReplicas(2)
+
+			// Due to IPCache update delays, it can take up to a few seconds
+			// before both nodes have added the new pod IPs to their allowedIPs
+			// list, which can cause flakes in CI. Therefore wait for the
+			// IPs to be present on both nodes before performing the test
+			waitForAllowedIP := func(ciliumPod, ip string) {
+				jsonpath := fmt.Sprintf(`{.encryption.wireguard.interfaces[*].peers[*].allowed-ips[?(@=='%s')]}`, ip)
+				ciliumCmd := fmt.Sprintf(`cilium debuginfo --output jsonpath="%s"`, jsonpath)
+				expected := fmt.Sprintf("jsonpath=%s", ip)
+				err := kubectl.CiliumExecUntilMatch(ciliumPod, ciliumCmd, expected)
+				Expect(err).To(BeNil(), "ip %q not in allowedIPs of pod %q", ip, ciliumPod)
+			}
+
+			waitForAllowedIP(ciliumPodK8s1, fmt.Sprintf("%s/32", dstPodIP))
+			waitForAllowedIP(ciliumPodK8s2, fmt.Sprintf("%s/32", srcPodIP))
+
+			checkNoLeak(srcPod, srcPodIP.String(), dstPodIP.String(), true)			
+		}
+
+		It("Pod2pod is encrypted in tunneling mode with per-endpoint routes STRICT MODE vxlan", func() {
+			ciliumConfig := map[string]string{
+				"tunnel":                 "vxlan",
+				"ipv6.enabled":           "false",
+				"endpointRoutes.enabled": "true",
+				"encryption.enabled":     "true",
+				"encryption.type":        "wireguard",
+				"l7Proxy":                "false",
+				"ipam.operator.clusterPoolIPv4PodCIDRList": "10.244.0.0/16",
+				"strictModeCIDR":   "10.244.0.0/16",
+				"image.pullPolicy": "Always",
+			}
+
+			testStrictWireguard("cilium_vxlan", ciliumConfig)
+		})
+		It("Pod2pod is encrypted in tunneling mode with per-endpoint routes STRICT MODE direct", func() {
+			ciliumConfig := map[string]string{
+				"tunnel":                 "disabled",
+				"autoDirectNodeRoutes":   "true",
+				"ipv4NativeRoutingCIDR":  "10.244.0.0/16",
+				"ipv6.enabled":           "false",
+				"endpointRoutes.enabled": "true",
+				"encryption.enabled":     "true",
+				"encryption.type":        "wireguard",
+				"l7Proxy":                "false",
+				"ipam.operator.clusterPoolIPv4PodCIDRList": "10.244.0.0/16",
+				"strictModeCIDR":   "10.244.0.0/16",
+				"image.pullPolicy": "Always",
+			}
+
+			privateIface, err := kubectl.GetPrivateIface(helpers.K8s1)
+			Expect(err).Should(BeNil(), "Cannot determine private iface")
+			testStrictWireguard(privateIface, ciliumConfig)
+		})
 	})
 
 	SkipContextIf(func() bool {

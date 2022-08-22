@@ -38,6 +38,7 @@ const (
 	// KubectlCmd Kubernetes controller command
 	KubectlCmd   = "kubectl"
 	kubeDNSLabel = "k8s-app=kube-dns"
+	operatorLabel = "io.cilium/app=operator"
 
 	// DNSHelperTimeout is a predefined timeout value for K8s DNS commands. It
 	// must be larger than 5 minutes because kubedns has a hardcoded resync
@@ -2113,6 +2114,20 @@ func (kub *Kubectl) ScaleUpDNS() *CmdRes {
 	}
 	return res
 }
+
+// SetCiliumOperatorReplicas sets the number of replicas for the cilium-operator.
+func (kub *Kubectl) SetCiliumOperatorReplicas(nReplicas int) *CmdRes {
+	res := kub.ExecShort(fmt.Sprintf("%s get deploy -n %s -l %s -o jsonpath='{.items[*].metadata.name}'", KubectlCmd, CiliumNamespace, operatorLabel))
+	if !res.WasSuccessful() {
+		return res
+	}
+
+	// kubectl -n kube-system patch deploy coredns --patch '{"spec": { "replicas":1}}'
+	name := res.Stdout()
+	spec := fmt.Sprintf("{\"spec\": { \"replicas\":%d}}", nReplicas)
+	return kub.ExecShort(fmt.Sprintf("%s patch deploy -n %s %s --patch '%s'", KubectlCmd, CiliumNamespace, name, spec))
+}
+
 
 // redeployDNS deletes the kube-dns pods and does not wait for the deletion
 // to complete.

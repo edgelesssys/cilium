@@ -8,6 +8,9 @@
 #include "dbg.h"
 #include "trace.h"
 #include "l3.h"
+#ifdef STRICT_MODE
+#include "lib/strict.h"
+#endif
 
 #ifdef ENCAP_IFINDEX
 /* NOT_VTEP_DST is passed to an encapsulation function when the
@@ -225,8 +228,19 @@ encap_and_redirect_lxc(struct __ctx_buff *ctx, __u32 tunnel_endpoint,
 	}
 
 	tunnel = map_lookup_elem(&TUNNEL_MAP, key);
-	if (!tunnel)
+	if (!tunnel){
 		return DROP_NO_TUNNEL_ENDPOINT;
+	}
+
+#ifdef TUNNEL_MODE
+#ifdef STRICT_MODE
+	if (!strict_allow(ctx))
+	{
+		return send_drop_notify_error(ctx, 0, DROP_UNENCRYPTED_TRAFFIC,
+									CTX_ACT_DROP, METRIC_EGRESS);
+	}
+#endif
+#endif
 
 #ifdef ENABLE_IPSEC
 	if (tunnel->key) {
