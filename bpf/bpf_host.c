@@ -1108,14 +1108,12 @@ int to_netdev(struct __ctx_buff *ctx __maybe_unused)
 		}
 	}
 
-#ifndef TUNNEL_MODE
-#ifdef STRICT_MODE
+#if !defined(TUNNEL_MODE) && defined(STRICT_MODE)
 	if (!strict_allow(ctx))
 	{
 		return send_drop_notify_error(ctx, 0, DROP_UNENCRYPTED_TRAFFIC,
 									  CTX_ACT_DROP, METRIC_EGRESS);
 	}
-#endif
 #endif
 
 #if defined(ENABLE_L7_LB)

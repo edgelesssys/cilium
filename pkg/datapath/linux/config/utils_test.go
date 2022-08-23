@@ -6,7 +6,6 @@
 package config
 
 import (
-	"net"
 	"testing"
 
 	. "gopkg.in/check.v1"
@@ -78,6 +77,3 @@ func (s *ConfigSuite) TestdefineMAC(c *C) {
 	}
 }
 
-func (s *ConfigSuite) Testipv4ToInt(c *C) {
-	c.Assert(ipv4ToInt(net.IPv4(255, 254, 253, 252)), Equals, 0xfcfdfeff)
-}

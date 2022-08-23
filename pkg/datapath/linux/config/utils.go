@@ -4,7 +4,6 @@
 package config
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
 
@@ -62,10 +61,3 @@ func defineMAC(name string, addr []byte) string {
 		name, common.GoArray2C(addr), name, name)
 }
 
-func ipv4ToInt(ip net.IP) uint32 {
-	fourByteIP := ip.To4()
-	if fourByteIP == nil {
-		return 0
-	}
-	return binary.LittleEndian.Uint32(fourByteIP)
-}
