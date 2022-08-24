@@ -56,4 +56,4 @@ strict_allow(struct __ctx_buff *ctx)
         return true;
     }
 }
-#endif
+#endif /* __STRICT_H_ */
