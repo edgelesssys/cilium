@@ -56,5 +56,4 @@ strict_allow(struct __ctx_buff *ctx)
         return true;
     }
 }
-
-#endif /* __WIREGUARD_H_ */
+#endif
