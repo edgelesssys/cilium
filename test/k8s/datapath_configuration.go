@@ -669,7 +669,14 @@ var _ = Describe("K8sDatapathConfig", func() {
 			// Sanity check
 			ExpectWithOffset(1, len(endpointIPs)).Should(Equal(1), "BUG: more than one DS server on %s", ciliumPodK8s2)
 
-			checkNoLeak := func(srcPod, srcIP, dstIP string, shouldBeSuccessful bool) {
+
+			// Fetch svc IP
+			dsSvcJSON := kubectl.Get(randomNamespace, "svc testds-service -o json")
+			dsSvcIP, err := dsSvcJSON.Filter("{.spec.clusterIP}")
+			ExpectWithOffset(1, err).Should(BeNil(), "Failure to retrieve IP of service testds-service")
+
+
+			checkNoLeakP2P := func(srcPod, srcIP, dstIP string, shouldBeSuccessful bool) {
 				cmd := fmt.Sprintf("tcpdump -vv -i %s --immediate-mode -n 'host %s and host %s' -c 1", interNodeDev, srcIP, dstIP)
 				res1, cancel1, err := kubectl.ExecInHostNetNSInBackground(context.TODO(), k8s1NodeName, cmd)
 				ExpectWithOffset(2, err).Should(BeNil(), "Cannot exec tcpdump in bg")
@@ -692,7 +699,33 @@ var _ = Describe("K8sDatapathConfig", func() {
 				ExpectWithOffset(2, res2.CombineOutput().String()).Should(Not(ContainSubstring("1 packet captured")))
 			}
 
-			checkNoLeak(srcPod, srcPodIP.String(), dstPodIP.String(), false)
+			checkNoLeakP2RemoteService := func(srcPod, dstPod, srcIP, dstService string, shouldBeSuccessful bool) {
+				cmd := fmt.Sprintf("tcpdump -vv -i %s --immediate-mode -n 'src %s or dst %s' -c 1", interNodeDev, srcIP, srcIP)
+				res1, cancel1, err := kubectl.ExecInHostNetNSInBackground(context.TODO(), k8s1NodeName, cmd)
+				ExpectWithOffset(2, err).Should(BeNil(), "Cannot exec tcpdump in bg")
+				res2, cancel2, err := kubectl.ExecInHostNetNSInBackground(context.TODO(), k8s2NodeName, cmd)
+				ExpectWithOffset(2, err).Should(BeNil(), "Cannot exec tcpdump in bg")
+
+				// HTTP connectivity test (pod2pod)
+
+				cmdRes, err := kubectl.ExecUntilMatch(randomNamespace, srcPod, helpers.CurlTimeout("http://%s/", time.Second, net.JoinHostPort(dstService, "80")), dstPod)				
+				if shouldBeSuccessful {
+					cmdRes.ExpectSuccess("Failed to curl svc on dst pod")
+					ExpectWithOffset(2, err).Should(BeNil(), "Failed to curl svc on dst pod")
+				} else {
+					ExpectWithOffset(2, err).ShouldNot(BeNil(), "Should not be able to curl svc on dst pod")
+				}
+
+				// Check that no unencrypted pod2pod traffic was captured on the direct routing device
+				cancel1()
+				cancel2()
+				ExpectWithOffset(2, res1.CombineOutput().String()).Should(Not(ContainSubstring("1 packet captured")))
+				ExpectWithOffset(2, res2.CombineOutput().String()).Should(Not(ContainSubstring("1 packet captured")))
+			}
+
+			checkNoLeakP2P(srcPod, srcPodIP.String(), dstPodIP.String(), false)
+			checkNoLeakP2RemoteService(srcPod, dstPod, srcPodIP.String(), dsSvcIP.String(), false)
+
 
 			// Check that the src pod can reach the remote host
 			kubectl.ExecPodCmd(randomNamespace, srcPod, helpers.Ping(k8s2IP)).
@@ -720,7 +753,9 @@ var _ = Describe("K8sDatapathConfig", func() {
 			waitForAllowedIP(ciliumPodK8s1, fmt.Sprintf("%s/32", dstPodIP))
 			waitForAllowedIP(ciliumPodK8s2, fmt.Sprintf("%s/32", srcPodIP))
 
-			checkNoLeak(srcPod, srcPodIP.String(), dstPodIP.String(), true)			
+			checkNoLeakP2P(srcPod, srcPodIP.String(), dstPodIP.String(), true)
+
+			checkNoLeakP2RemoteService(srcPod, dstPod, srcPodIP.String(), dsSvcIP.String(), true)
 		}
 
 		It("Pod2pod is encrypted in tunneling mode with per-endpoint routes STRICT MODE vxlan", func() {

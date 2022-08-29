@@ -2881,6 +2881,26 @@ func (kub *Kubectl) CiliumExecMustSucceedOnAll(ctx context.Context, cmd string, 
 	}
 }
 
+// ExecUntilMatch executes the specified command repeatedly for the
+// specified pod until the given substring is present in stdout.
+// If the timeout is reached it will return an error.
+func (kub *Kubectl) ExecUntilMatch(namespace, pod, cmd, substr string) (*CmdRes, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), ShortCommandTimeout)
+	defer cancel()
+	var res *CmdRes
+	for {
+		select {
+		case <-ctx.Done():
+			return res, fmt.Errorf("timeout waiting for %q to be present in stdout", substr)
+		default:
+			res = kub.ExecPodCmd(namespace, pod, cmd)
+			if strings.Contains(res.Stdout(), substr) {
+				return res, nil
+			}
+		}
+	}
+}
+
 // CiliumExecUntilMatch executes the specified command repeatedly for the
 // specified Cilium pod until the given substring is present in stdout.
 // If the timeout is reached it will return an error.
