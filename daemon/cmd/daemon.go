@@ -399,6 +399,10 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 	}
 	lbmap.Init(lbmapInitParams)
 
+	if err := setupStrictModeMap(params.LocalNodeStore); err != nil {
+		return nil, nil, fmt.Errorf("unable to setup strict map: %s", err)
+	}
+
 	params.NodeManager.Subscribe(params.Datapath.Node())
 
 	identity.IterateReservedIdentities(func(_ identity.NumericIdentity, _ *identity.Identity) {
@@ -970,7 +974,7 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 	// controller is to ensure that endpoints and host IPs entries are
 	// reinserted to the bpf maps if they are ever removed from them.
 	syncErrs := make(chan error, 1)
-	var syncHostIPsControllerGroup = controller.NewGroup("sync-host-ips")
+	syncHostIPsControllerGroup := controller.NewGroup("sync-host-ips")
 	d.controllers.UpdateController(
 		syncHostIPsController,
 		controller.ControllerParams{
