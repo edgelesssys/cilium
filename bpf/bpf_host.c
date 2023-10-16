@@ -1403,11 +1403,17 @@ skip_host_firewall:
 		return send_drop_notify_error(ctx, 0, ret, CTX_ACT_DROP,
 					      METRIC_EGRESS);
 
-#if defined(ENCRYPTION_STRICT_MODE)
+	/* We disable the WireGuard strict mode if the tunnel mode is enabled,
+	 * since we have a check earlier in the datapath before encapsulation.
+	 * We chose this approach so that we don't have to decapsulate the
+	 * packet to check if the packet's original destination is allowed to
+	 * be sent unencrypted.
+	 */
+#if defined(ENCRYPTION_STRICT_MODE) && (!defined(TUNNEL_MODE) || defined(ENABLE_NODE_ENCRYPTION))
 	if (!strict_allow(ctx))
 		return send_drop_notify_error(ctx, 0, DROP_UNENCRYPTED_TRAFFIC,
 					      CTX_ACT_DROP, METRIC_EGRESS);
-#endif /* ENCRYPTION_STRICT_MODE */
+#endif /* ENCRYPTION_STRICT_MODE && (!TUNNEL_MODE || ENABLE_NODE_ENCRYPTION) */
 #endif /* ENABLE_WIREGUARD */
 
 #ifdef ENABLE_HEALTH_CHECK
