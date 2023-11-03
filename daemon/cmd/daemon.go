@@ -676,41 +676,6 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 
 	bootstrapStats.fqdn.End(true)
 
-	if params.Clientset.IsEnabled() {
-		bootstrapStats.k8sInit.Start()
-		// Errors are handled inside WaitForCRDsToRegister. It will fatal on a
-		// context deadline or if the context has been cancelled, the context's
-		// error will be returned. Otherwise, it succeeded.
-		if !option.Config.DryMode {
-			if err := d.k8sWatcher.WaitForCRDsToRegister(d.ctx); err != nil {
-				return nil, restoredEndpoints, err
-			}
-		}
-
-		if option.Config.IPAM == ipamOption.IPAMClusterPool ||
-			option.Config.IPAM == ipamOption.IPAMMultiPool {
-			// Create the CiliumNode custom resource. This call will block until
-			// the custom resource has been created
-			d.nodeDiscovery.UpdateCiliumNodeResource()
-		}
-
-		if err := agentK8s.WaitForNodeInformation(d.ctx, log, params.Resources.LocalNode, params.Resources.LocalCiliumNode); err != nil {
-			log.WithError(err).Error("unable to connect to get node spec from apiserver")
-			return nil, nil, fmt.Errorf("unable to connect to get node spec from apiserver: %w", err)
-		}
-
-		// Kubernetes demands that the localhost can always reach local
-		// pods. Therefore unless the AllowLocalhost policy is set to a
-		// specific mode, always allow localhost to reach local
-		// endpoints.
-		if option.Config.AllowLocalhost == option.AllowLocalhostAuto {
-			option.Config.AllowLocalhost = option.AllowLocalhostAlways
-			log.Info("k8s mode: Allowing localhost to reach local endpoints")
-		}
-
-		bootstrapStats.k8sInit.End(true)
-	}
-
 	if params.WGAgent != nil && option.Config.EnableWireguard {
 		if err := params.WGAgent.Init(d.ipcache, d.mtuConfig); err != nil {
 			log.WithError(err).Error("failed to initialize WireGuard agent")
@@ -822,6 +787,41 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		bootstrapStats.k8sInit.End(true)
 	} else {
 		close(params.CacheStatus)
+	}
+
+	if params.Clientset.IsEnabled() {
+		bootstrapStats.k8sInit.Start()
+		// Errors are handled inside WaitForCRDsToRegister. It will fatal on a
+		// context deadline or if the context has been cancelled, the context's
+		// error will be returned. Otherwise, it succeeded.
+		if !option.Config.DryMode {
+			if err := d.k8sWatcher.WaitForCRDsToRegister(d.ctx); err != nil {
+				return nil, restoredEndpoints, err
+			}
+		}
+
+		if option.Config.IPAM == ipamOption.IPAMClusterPool ||
+			option.Config.IPAM == ipamOption.IPAMMultiPool {
+			// Create the CiliumNode custom resource. This call will block until
+			// the custom resource has been created
+			d.nodeDiscovery.UpdateCiliumNodeResource()
+		}
+
+		if err := agentK8s.WaitForNodeInformation(d.ctx, log, params.Resources.LocalNode, params.Resources.LocalCiliumNode); err != nil {
+			log.WithError(err).Error("unable to connect to get node spec from apiserver")
+			return nil, nil, fmt.Errorf("unable to connect to get node spec from apiserver: %w", err)
+		}
+
+		// Kubernetes demands that the localhost can always reach local
+		// pods. Therefore unless the AllowLocalhost policy is set to a
+		// specific mode, always allow localhost to reach local
+		// endpoints.
+		if option.Config.AllowLocalhost == option.AllowLocalhostAuto {
+			option.Config.AllowLocalhost = option.AllowLocalhostAlways
+			log.Info("k8s mode: Allowing localhost to reach local endpoints")
+		}
+
+		bootstrapStats.k8sInit.End(true)
 	}
 
 	bootstrapStats.cleanup.Start()
