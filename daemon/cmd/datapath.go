@@ -46,6 +46,7 @@ import (
 	"github.com/cilium/cilium/pkg/node"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/source"
+	"github.com/cilium/cilium/pkg/time"
 )
 
 // LocalConfig returns the local configuration of the daemon's nodediscovery.
@@ -508,18 +509,27 @@ func setupStrictModeMap(lns *node.LocalNodeStore) error {
 		return fmt.Errorf("unable to parse control plane label selector: %w", err)
 	}
 
-	localNode, err := lns.Get(context.Background())
-	if err != nil {
-		return fmt.Errorf("unable to get local node: %w", err)
-	}
-
-	if sel.Matches(k8sLabels.Set(localNode.Labels)) {
-		for _, nodeCIDR := range option.Config.EncryptionStrictModeNodeCIDRs {
-			if err := strictmap.UpdateContext(nodeCIDR, 0, 0, 2379, 2380); err != nil {
-				return fmt.Errorf("updating strict mode map: %w", err)
+	allowEtcd := func() {
+		for i := 0; i < 10; i++ {
+			localNode, err := lns.Get(context.Background())
+			if err != nil {
+				log.WithError(err).Error("unable to get local node")
 			}
+			log.Debugf("local node labels: %v", localNode.Labels)
+			if sel.Matches(k8sLabels.Set(localNode.Labels)) {
+				for _, nodeCIDR := range option.Config.EncryptionStrictModeNodeCIDRs {
+					if err := strictmap.UpdateContext(nodeCIDR, 0, 0, 2379, 2380); err != nil {
+						log.WithError(err).Fatal("updating strict mode map: %w", err)
+					}
+				}
+				log.Infoln("Added etcd ports to strict mode map")
+				return
+			}
+			time.Sleep(2 * time.Second)
 		}
+		log.Infoln("Didn't add etcd ports to strict mode map")
 	}
+	go allowEtcd()
 
 	return nil
 }
