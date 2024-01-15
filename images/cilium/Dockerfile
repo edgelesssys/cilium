@@ -35,6 +35,7 @@ ARG TARGETOS
 ARG TARGETARCH
 # MODIFIERS are extra arguments to be passed to make at build time.
 ARG MODIFIERS
+ARG SOURCE_DATE_EPOCH=0
 
 #
 # Please do not add any dependency updates before the 'make install' here,
@@ -42,14 +43,14 @@ ARG MODIFIERS
 #
 WORKDIR /go/src/github.com/cilium/cilium
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
-    make GOARCH=${TARGETARCH} DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} PKG_BUILD=1 ${MODIFIERS} \
+    SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} make GOARCH=${TARGETARCH} DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} PKG_BUILD=1 ${MODIFIERS} \
     build-container install-container-binary
 
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium --mount=target=/root/.cache,type=cache --mount=target=/go/pkg,type=cache \
     # install-bash-completion will execute the bash_completion script. It is
     # fine to run this with same architecture as BUILDARCH since the output of
     # bash_completion is the same for both architectures.
-    make GOARCH=${BUILDARCH} DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} PKG_BUILD=1 ${MODIFIERS} \
+    SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} make GOARCH=${BUILDARCH} DESTDIR=/tmp/install/${TARGETOS}/${TARGETARCH} PKG_BUILD=1 ${MODIFIERS} \
     install-bash-completion licenses-all && \
     mv LICENSE.all /tmp/install/${TARGETOS}/${TARGETARCH}/LICENSE.all
 
@@ -57,6 +58,8 @@ COPY images/cilium/init-container.sh \
      plugins/cilium-cni/install-plugin.sh \
      plugins/cilium-cni/cni-uninstall.sh \
        /tmp/install/${TARGETOS}/${TARGETARCH}
+
+RUN find /tmp/install/${TARGETOS}/${TARGETARCH} -depth -execdir touch --no-dereference -a -m -t $(date -u -d @${SOURCE_DATE_EPOCH} +%Y%m%d%H%M.%S) '{}' ';'
 
 #
 # Cilium runtime install.
@@ -68,26 +71,13 @@ COPY images/cilium/init-container.sh \
 # built while allowing the new versions to make changes that are not
 # backwards compatible.
 #
-FROM ${CILIUM_RUNTIME_IMAGE} as release
+FROM quay.io/cilium/cilium:v1.15.8@sha256:3b5b0477f696502c449eaddff30019a7d399f077b7814bcafabc636829d194c7 as release
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS
 # TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETARCH
-LABEL maintainer="maintainer@cilium.io"
-RUN echo ". /etc/profile.d/bash_completion.sh" >> /etc/bash.bashrc
-COPY --from=cilium-envoy /usr/lib/libcilium.so /usr/lib/libcilium.so
-COPY --from=cilium-envoy /usr/bin/cilium-envoy /usr/bin/cilium-envoy-starter /usr/bin/
-# When used within the Cilium container, Hubble CLI should target the
-# local unix domain socket instead of Hubble Relay.
-ENV HUBBLE_SERVER=unix:///var/run/cilium/hubble.sock
-COPY --from=hubble /out/${TARGETOS}/${TARGETARCH}/bin/hubble /usr/bin/hubble
-COPY --from=hubble /out/linux/bash_completion /etc/bash_completion.d/hubble
 
-COPY --from=builder /tmp/install/${TARGETOS}/${TARGETARCH} /
-WORKDIR /home/cilium
-
-ENV INITSYSTEM="SYSTEMD"
-CMD ["/usr/bin/cilium-dbg"]
+COPY --link --from=builder /tmp/install/${TARGETOS}/${TARGETARCH} /
 
 #
 # Cilium debug image.
