@@ -121,7 +121,7 @@ ifeq ($(NOSTRIP),)
     #
     # -w: Omit the DWARF symbol table.
     # -s: Omit the symbol table and debug information.
-    GO_BUILD_LDFLAGS += -s -w
+    GO_BUILD_LDFLAGS += -s -w -buildid=
 endif
 
 ifneq ($(wildcard $(dir $(lastword $(MAKEFILE_LIST)))/images/cilium/Dockerfile),)
@@ -145,7 +145,7 @@ BPF_SRCFILES := $(filter-out $(BPF_SRCFILES_IGNORE),$(subst ../,,$(subst $(ROOT_
 CILIUM_DATAPATH_SHA256=$(shell cd $(ROOT_DIR); cat $(BPF_SRCFILES) | sha256sum | awk '{print $$1}')
 GO_BUILD_LDFLAGS += -X "github.com/cilium/cilium/pkg/datapath/loader.DatapathSHA256=$(CILIUM_DATAPATH_SHA256)"
 
-GO_BUILD_FLAGS += -mod=vendor
+GO_BUILD_FLAGS += -mod=vendor -trimpath
 GO_TEST_FLAGS += -mod=vendor -vet=all
 GO_CLEAN_FLAGS += -mod=vendor
 
