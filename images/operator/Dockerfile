@@ -20,13 +20,14 @@ ARG NOOPT
 ARG LOCKDEBUG
 ARG RACE
 ARG OPERATOR_VARIANT
+ARG SOURCE_DATE_EPOCH=0
 
 WORKDIR /go/src/github.com/cilium/cilium
 
 RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg \
-    make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} \
+    SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} make GOARCH=${TARGETARCH} RACE=${RACE} NOSTRIP=${NOSTRIP} NOOPT=${NOOPT} LOCKDEBUG=${LOCKDEBUG} \
     DESTDIR=/out/${TARGETOS}/${TARGETARCH} build-container-${OPERATOR_VARIANT} install-container-binary-${OPERATOR_VARIANT}
 
 # licenses-all is a "script" that executes "go run" so its ARCH should be set
@@ -35,6 +36,8 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     --mount=type=cache,target=/root/.cache \
     --mount=type=cache,target=/go/pkg \
     make GOARCH=${BUILDARCH} licenses-all && mv LICENSE.all /out/${TARGETOS}/${TARGETARCH}
+
+RUN find /out/${TARGETOS}/${TARGETARCH} -depth -execdir touch --no-dereference -a -m -t $(date -u -d @${SOURCE_DATE_EPOCH} +%Y%m%d%H%M.%S) '{}' ';'
 
 # BUILDPLATFORM is an automatic platform ARG enabled by Docker BuildKit.
 # Represents the plataform where the build is happening, do not mix with
@@ -55,20 +58,12 @@ RUN --mount=type=bind,readwrite,target=/go/src/github.com/cilium/cilium \
     --mount=type=cache,target=/go/pkg \
     ./build-gops.sh
 
-FROM ${BASE_IMAGE} as release
+FROM docker.io/cilium/operator:v1.15.0-pre.3@sha256:1df2ea3840ca1c012d86f8e9dd785c3f24ce319915db3e6c99150627dfdc08cb as release
 # TARGETOS is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETOS
 # TARGETARCH is an automatic platform ARG enabled by Docker BuildKit.
 ARG TARGETARCH
-ARG OPERATOR_VARIANT
-LABEL maintainer="maintainer@cilium.io"
-COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=gops /out/${TARGETOS}/${TARGETARCH}/bin/gops /bin/gops
-COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/usr/bin/cilium-${OPERATOR_VARIANT} /usr/bin/cilium-${OPERATOR_VARIANT}
-COPY --from=builder /out/${TARGETOS}/${TARGETARCH}/LICENSE.all /LICENSE.all
-WORKDIR /
-ENV GOPS_CONFIG_DIR=/
-CMD ["/usr/bin/cilium-${OPERATOR_VARIANT}"]
+COPY --link --from=builder /out/${TARGETOS}/${TARGETARCH} /
 
 FROM --platform=${BUILDPLATFORM} ${CILIUM_BUILDER_IMAGE} as debug-tools
 
