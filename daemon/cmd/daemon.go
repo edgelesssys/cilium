@@ -453,6 +453,8 @@ func newDaemon(ctx context.Context, cleaner *daemonCleanup, params *daemonParams
 		bwManager:            params.BandwidthManager,
 	}
 
+	setMSSForNodeCIDR(params.LocalNodeStore, d.mtuConfig.GetRouteMTU())
+
 	d.configModifyQueue = eventqueue.NewEventQueueBuffered("config-modify-queue", ConfigModifyQueueSize)
 	d.configModifyQueue.Run()
 
