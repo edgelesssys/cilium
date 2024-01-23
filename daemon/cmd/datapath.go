@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -532,6 +533,80 @@ func setupStrictModeMap(lns *node.LocalNodeStore) error {
 	go allowEtcd()
 
 	return nil
+}
+
+// This is a fix for the performance degradation when enabling WireGuard node
+// encryption. See (2.) in https://github.com/cilium/cilium/issues/28413#issuecomment-1898943563
+// Strictly speaking, we don't need to exectue this when WireGuard node encryption
+// is not enabled. We stay on the safe side regarding the MSS value, since
+// the RouteMTU also includes the tunneling overhead which does not affect
+// node to node communication.
+func setMSSForNodeCIDR(lns *node.LocalNodeStore, routeMTU int) {
+	go func() {
+		for i := 0; i < 10; i++ {
+			time.Sleep(10 * time.Second)
+
+			ln, err := lns.Get(context.Background())
+			if err != nil {
+				log.WithError(err).Error("unable to get local node")
+				continue
+			}
+			if len(ln.GetNodeInternalIPv4().String()) == 0 {
+				log.Infof("Waiting for node IP to be assigned: %s\n", ln.GetNodeInternalIPv4().String())
+				continue
+			}
+			cmd := exec.CommandContext(context.Background(), "ip", "route", "show", "match", ln.GetNodeInternalIPv4().String())
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				log.WithError(err).WithField("output", string(out)).Error("unable to find route")
+				continue
+			}
+			lines := strings.Split(string(out), "\n")
+			nonDefaultRoutes := []string{}
+			defaultRoute := ""
+			for _, line := range lines {
+				if !strings.Contains(line, "default") && strings.Contains(line, "dev") {
+					nonDefaultRoutes = append(nonDefaultRoutes, line)
+				} else if strings.Contains(line, "default") && strings.Contains(line, "dev") {
+					defaultRoute = line
+				}
+			}
+
+			for _, route := range nonDefaultRoutes {
+				args := []string{"route", "replace"}
+				args = append(args, strings.Split(strings.TrimSpace(route), " ")...)
+				args = append(args, "advmss", fmt.Sprintf("%d", routeMTU-40))
+				cmd := exec.CommandContext(context.Background(), "ip", args...)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					log.WithError(err).WithField("output", string(out)).Error("unable to add route")
+					continue
+				}
+			}
+
+			// GCP does not have any nodeCIDR specific route.
+			// Since we don't want to override the default route, we create one
+			// ourselves.
+			if len(nonDefaultRoutes) == 0 {
+				// "default via 192.168.178.1 ..."
+				gatewayIP := strings.Split(defaultRoute, " ")[2]
+				if _, err := netip.ParseAddr(gatewayIP); err != nil {
+					log.WithError(err).Error("unable to parse gateway IP")
+					continue
+				}
+
+				for _, nodeCIDR := range option.Config.EncryptionStrictModeNodeCIDRs {
+
+					cmd := exec.CommandContext(context.Background(), "ip", "route", "replace", nodeCIDR.String(), "via", gatewayIP, "advmss", fmt.Sprintf("%d", routeMTU-40))
+					if out, err := cmd.CombinedOutput(); err != nil {
+						log.WithError(err).WithField("output", string(out)).Error("unable to add route")
+						continue
+					}
+				}
+			}
+
+			return
+		}
+	}()
 }
 
 func setupVTEPMapping() error {
